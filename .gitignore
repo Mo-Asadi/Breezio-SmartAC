@@ -1,0 +1,43 @@
+# Root-level ignore rules
+
+# Secrets & credentials
+**/secrets.cpp
+
+# ESP32
+ESP32/.pio/
+ESP32/.vscode/
+ESP32/*.elf
+ESP32/*.bin
+ESP32/*.map
+ESP32/*.d
+ESP32/__pycache__/
+ESP32/.DS_Store
+
+# Flutter
+Breezio-Flutter App/.dart_tool/
+Breezio-Flutter App/.idea/
+Breezio-Flutter App/.vscode/
+Breezio-Flutter App/build/
+Breezio-Flutter App/.packages
+Breezio-Flutter App/pubspec.lock
+
+# macOS
+.DS_Store
+
+# Node modules (if used for Flutter web)
+**/node_modules/
+
+# Android/Gradle
+**/android/.gradle/
+**/android/app/build/
+**/android/local.properties
+
+# iOS/Xcode
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/.symlinks/
+**/ios/Pods/
+**/ios/.flutter-plugins
+**/ios/Flutter/Generated.xcconfig
+**/ios/Runner.xcodeproj/project.xcworkspace
+**/ios/Runner.xcworkspace
