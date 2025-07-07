@@ -92,7 +92,7 @@ void addNewUser(JsonDocument& command){
         return;
     }
     String newUid = command["new_uid"];
-    deviceData["users"][newUid]["role"] = "admin";
+    deviceData["users"][newUid]["role"] = "user";
     deviceData["users"][newUid]["favorites"]["temperature"] = DEFAULT_TEMP;
     deviceData["users"][newUid]["favorites"]["lightsOn"] = false;
     deviceData["users"][newUid]["favorites"]["mode"] = "regular";
@@ -224,7 +224,22 @@ bool transmitSignal(const String& signal){
         for (size_t i = 0; i < rawVector.size(); i++) {
             rawData[i] = rawVector[i];
         }
+        noInterrupts();
         irsend.sendRaw(rawData, sizeof(rawData)/sizeof(rawData[0]), 38);   // 38kHz
+        interrupts();
+        for (size_t i = 0; i < rawVector.size(); i += 10) {
+            Serial.print("🔹 Signal [");
+            Serial.print(i);
+            Serial.print(" - ");
+            Serial.print(min(i + 9, rawVector.size() - 1));
+            Serial.print("]: ");
+            for (size_t j = i; j < i + 10 && j < rawVector.size(); j++) {
+                Serial.print(rawVector[j]);
+                if (j < i + 9 && j < rawVector.size() - 1) Serial.print(",");
+            }
+            Serial.println();
+        }
+        
         return true;
     }
 }
