@@ -127,6 +127,9 @@ void initData(){
     deviceData["sensors"]["roomTemperature"] = 0.0;
     deviceData["sensors"]["roomHumidity"] = 0.0;
     deviceData["sensors"]["motion"] = false;
+    deviceData["sensors"]["eco2"] = 250;
+    deviceData["sensors"]["tvoc"] = 100;
+    deviceData["sensors"]["aqi"] = 60;
 
     // Setting Up AC Default Schedule
     deviceData["schedule"]["sunday"]["active"] = false;
@@ -213,7 +216,6 @@ void onCommandDataChange(FirebaseStream data) {
         LOG_ERROR("❌ Invalid or missing JSON command");
         return;
     }
-    deviceData["command"] = "busy";
     FirebaseJson &commandData = data.to<FirebaseJson>();
     String jsonStr;
     commandData.toString(jsonStr);
