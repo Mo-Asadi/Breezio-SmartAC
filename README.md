@@ -5,9 +5,11 @@ Welcome to the **Smart AC Project**, a comprehensive smart air conditioning cont
 ---
 
 ## 📁 Repository Structure
-├── ESP32/                  # ESP32 firmware for device-side control
-├── Breezio-Flutter App/   # Flutter mobile app for controlling and configuring the AC
-└── README.md               # Project documentation
+```
+├── ESP32/                  # ESP32 firmware for device-side control  
+├── Breezio-Flutter App/   # Flutter mobile app for controlling and configuring the AC  
+└── README.md              # Project documentation  
+```
 
 ---
 
