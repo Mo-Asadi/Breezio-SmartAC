@@ -14,12 +14,14 @@ ESP32/__pycache__/
 ESP32/.DS_Store
 
 # Flutter
-Breezio-Flutter App/.dart_tool/
-Breezio-Flutter App/.idea/
-Breezio-Flutter App/.vscode/
-Breezio-Flutter App/build/
-Breezio-Flutter App/.packages
-Breezio-Flutter App/pubspec.lock
+Breezio-FlutterApp/.dart_tool/
+Breezio-FlutterApp/.idea/
+Breezio-FlutterApp/.vscode/
+Breezio-FlutterApp/build/
+Breezio-FlutterApp/.packages
+Breezio-FlutterApp/pubspec.lock
+Breezio-FlutterApp/.env
+
 
 # macOS
 .DS_Store
