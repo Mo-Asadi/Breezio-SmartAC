@@ -3,6 +3,10 @@
 
 #include <Arduino.h> 
 
+extern unsigned long lastMotionMillis;
+extern bool alreadyTurnedOn;
+extern bool alreadyTurnedOff;
+
 void handleMode();
 
 #endif

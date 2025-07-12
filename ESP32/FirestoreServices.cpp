@@ -3,38 +3,60 @@
 #include <addons/RTDBHelper.h>
 #include <addons/TokenHelper.h>
 #include <Preferences.h>
-#include "FirestoreServices.h"
-#include "IRCommand.h"
+#include "firestoreServices.h"
+#include "command.h"
 #include "log.h"
 #include "secrets.h"
 #include "parameters.h"
-#include "pirSensor.h"
-#include "dhtSensor.h"
+#include "sensors.h"
+#include "modeHandler.h"
 
 
 FirebaseAuth auth;
 FirebaseConfig config;
 FirebaseData commandFbdo;
 FirebaseData accessFbdo;
-FirebaseData idleFlagFbdo;
+FirebaseData statusFbdo;
+FirebaseData resultFbdo;
+FirebaseData notifyFbdo;
+FirebaseData maintenanceFbdo;
+FirebaseData sensorFbdo;
+FirebaseJson commandData;
 String deviceMacPath;
-String idlePath;
-JsonDocument deviceData;
 
-//Online Hearbeat Flags
-unsigned long lastHeartbeat = 0;
+bool testMode = false;
+bool lights_on = false;
+bool relay_on = false;
+String model = "Electra";
+String mode = "regular";
+bool acPowered = false;
+float totalHours = 0.0;
+int duration = 30;
+bool shouldBuzz = true;
+float currTemp = 24;
+bool ecoCanTurnOn = true;
+String idleFlag = "active";
+WeeklySchedule schedule;
 
-void initData();
+
+
 void onCommandDataChange(FirebaseStream data);
-void onIdleFlagChange(FirebaseStream data);
 void onCommandStreamTimeout(bool timeout);
-void onIdleStreamTimeout(bool timeout);
+void updateTotalHours();
+void initLastState(FirebaseJson& json);
+void loadScheduleFromJson(FirebaseJson &json);
+void handleFirebaseStream();
+void updateOnlineStatus();
+void updateSensorReadings();
+void fetchSchedule();
+void notifyUser(const String& prompt);
+void resetDevice();
+
 
 void initFirebase() {
     #if defined(ESP32)
     accessFbdo.setBSSLBufferSize(4096, 1024);
     commandFbdo.setBSSLBufferSize(4096, 1024);
-    idleFlagFbdo.setBSSLBufferSize(4096, 1024);
     #endif
     config.api_key = ApiKey;
     config.database_url = DbUrl;
@@ -58,186 +80,162 @@ void initFirebase() {
         delay(200);
     }
     LOG_INFO("\nFirebase Authenticated!");
-
     String mac = WiFi.macAddress();
     mac.replace(":", "");
     deviceMacPath = "/devices/" + mac;
-    idlePath = deviceMacPath + "/status/idleFlag";
 
     // 🔍 Check if the device node exists
     accessFbdo.clear();
     if (!Firebase.RTDB.getJSON(&accessFbdo, deviceMacPath)) {
-        LOG_WARN("📭 Device data does not exist — initializing...");
-        initData();
+        LOG_WARN("📭 Device data does not exist — Initializing...");
+        return;
     } else {
-        LOG_INFO("📦 Device node already exists in RTDB");
+        LOG_INFO("📦 Device data already exists - Recovering Last State...");
+        initLastState(accessFbdo.to<FirebaseJson>());
     }
+    accessFbdo.clear();
     // 🎧 Start stream
     if (!Firebase.RTDB.beginStream(&commandFbdo, deviceMacPath + "/command")) {
         LOGF("⚠️ Failed to start command stream: %s", commandFbdo.errorReason().c_str());
         return;
     }
-    if (!Firebase.RTDB.beginStream(&idleFlagFbdo, idlePath)) {
-        LOGF("⚠️ Failed to start idleFlag stream: %s", idleFlagFbdo.errorReason().c_str());
-    } else {
+    else {
         Firebase.RTDB.setStreamCallback(&commandFbdo, onCommandDataChange, onCommandStreamTimeout);
-        Firebase.RTDB.setStreamCallback(&idleFlagFbdo, onIdleFlagChange, onIdleStreamTimeout);
     }
-    loadDeviceData();
-    deviceData["status"]["lightsOn"] = false;
-    deviceData["status"]["relayOn"] = false;
-    delay(1000);
-    saveDeviceData();
 }
 
-void initData(){
+void loadScheduleFromJson(FirebaseJson &json) {
+  FirebaseJsonData result;
+  const char* days[] = {"sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"};
+  DaySchedule* dayPtrs[] = {
+    &schedule.sun, &schedule.mon, &schedule.tue, &schedule.wed,
+    &schedule.thu, &schedule.fri, &schedule.sat
+  };
+
+  for (int i = 0; i < 7; ++i) {
+    String path = "schedule/" + String(days[i]) + "/active";
+    json.get(result, path);  dayPtrs[i]->active = result.to<bool>();
+
+    path = "schedule/" + String(days[i]) + "/start";
+    json.get(result, path);  dayPtrs[i]->startHour = result.to<int>();
+
+    path = "schedule/" + String(days[i]) + "/end";
+    json.get(result, path);  dayPtrs[i]->endHour = result.to<int>();
+  }
+    alreadyTurnedOn = false;
+    alreadyTurnedOff = false;
+}
+
+void initLastState(FirebaseJson& json){
+    FirebaseJsonData result;
+    json.get(result, "config/model");
+    model = result.stringValue;
+    json.get(result, "status/currentTemperature");
+    currTemp = result.floatValue;
+    json.get(result, "status/idleFlag");
+    idleFlag = result.stringValue;
+    json.get(result, "status/mode");
+    mode = result.stringValue;
+    json.get(result, "config/testing");
+    testMode = result.boolValue;
+    json.get(result, "status/currentTimer");
+    duration = testMode ? 1 : result.intValue;
+    json.get(result, "status/lightsOn");
+    lights_on = result.boolValue;
+    json.get(result, "status/relayOn");
+    relay_on = result.boolValue;
+    json.get(result, "status/powered");
+    acPowered = result.boolValue;
+    json.get(result, "maintenance/totalHours");
+    totalHours = result.floatValue;
     Preferences prefs;
-    prefs.begin("setup", true);
-    String adminUID = prefs.getString("uid", "debug");
-    String model = prefs.getString("model", "");
-    int minTemp = prefs.getInt("minTemp", -1);
-    int maxTemp = prefs.getInt("maxTemp", -1);
+    prefs.begin("eco", true);
+    ecoCanTurnOn = prefs.getBool("ecoCanTurnOn", true);
     prefs.end();
-    deviceData.clear();
-
-    deviceData["command"] = "waiting";
-
-    //  AC Configuration Defaults
-    deviceData["config"]["model"] = model;
-    deviceData["config"]["maxTemperature"] = maxTemp;
-    deviceData["config"]["minTemperature"] = minTemp;
-
-    // 🌡️ AC Status Defaults
-    deviceData["status"]["powered"] = false;
-    deviceData["status"]["currentTemperature"] = DEFAULT_TEMP;
-    deviceData["status"]["currentTimer"] = DEFAULT_TIMER;
-    deviceData["status"]["mode"] = "regular";
-    deviceData["status"]["lightsOn"] = false;
-    deviceData["status"]["relayOn"] = false;
-    deviceData["status"]["manualTurnOff"] = false;
-    deviceData["status"]["idleFlag"] = "active";
-    deviceData["status"]["online"] = static_cast<int>(millis() / 1000);
-
-    // 🛠️ AC Maintenance Defaults
-    deviceData["maintenance"]["totalHours"] = 0.0;
-    deviceData["maintenance"]["capacityHours"] = 250;
-    deviceData["maintenance"]["buzz"] = true;
-
-    // 📊 Sensor Readings Defaults
-    deviceData["sensors"]["roomTemperature"] = 0.0;
-    deviceData["sensors"]["roomHumidity"] = 0.0;
-    deviceData["sensors"]["motion"] = false;
-    deviceData["sensors"]["eco2"] = 250;
-    deviceData["sensors"]["tvoc"] = 100;
-    deviceData["sensors"]["aqi"] = 60;
-
-    // Setting Up AC Default Schedule
-    deviceData["schedule"]["sunday"]["active"] = false;
-    deviceData["schedule"]["monday"]["active"] = false;
-    deviceData["schedule"]["tuesday"]["active"] = false;
-    deviceData["schedule"]["wednesday"]["active"] = false;
-    deviceData["schedule"]["thursday"]["active"] = false;
-    deviceData["schedule"]["friday"]["active"] = false;
-    deviceData["schedule"]["saturday"]["active"] = false;
-
-    // 🛠️ Setting Up Users
-    deviceData["users"]["system"]["role"] = "admin";
-    deviceData["users"]["scheduler"]["role"] = "admin";
-    deviceData["users"][adminUID]["role"] = "admin";
-    deviceData["users"][adminUID]["favorites"]["temperature"] = DEFAULT_TEMP;
-    deviceData["users"][adminUID]["favorites"]["lightsOn"] = false;
-    deviceData["users"][adminUID]["favorites"]["mode"] = "regular";
-    deviceData["users"][adminUID]["favorites"]["relayOn"] = false;
-    deviceData["users"][adminUID]["schedule"]["sunday"]["active"] = false;
-    deviceData["users"][adminUID]["schedule"]["monday"]["active"] = false;
-    deviceData["users"][adminUID]["schedule"]["tuesday"]["active"] = false;
-    deviceData["users"][adminUID]["schedule"]["wednesday"]["active"] = false;
-    deviceData["users"][adminUID]["schedule"]["thursday"]["active"] = false;
-    deviceData["users"][adminUID]["schedule"]["friday"]["active"] = false;
-    deviceData["users"][adminUID]["schedule"]["saturday"]["active"] = false;
-
-    saveDeviceData();
-}
-
-void loadDeviceData() {
-    accessFbdo.clear();
-    if (Firebase.RTDB.getJSON(&accessFbdo, deviceMacPath)) {
-        FirebaseJson fbJson = accessFbdo.to<FirebaseJson>();
-        String jsonStr;
-        fbJson.toString(jsonStr);
-        deviceData.clear();
-        deserializeJson(deviceData, jsonStr);
-        delay(1000);
-
-    } else {
-        LOG_ERROR("Failed to get device data");
+    loadScheduleFromJson(json);
+    if(lights_on){
+        lights_on= false;
+        switchLed();
+        lights_on = true;
     }
-}
-
-void saveDeviceData(){
-    accessFbdo.clear();
-    // Convert to FirebaseJson
-    String jsonStr;
-    serializeJson(deviceData, jsonStr);
-
-    FirebaseJson fbJson;
-    fbJson.setJsonData(jsonStr);
-
-    if (Firebase.RTDB.setJSON(&accessFbdo, deviceMacPath, &fbJson)) {
-        LOG_INFO("✅ Device data uploaded to RTDB");
-    } else {
-        LOGF("❌ Device data upload failed: %s", accessFbdo.errorReason().c_str());
+    if(relay_on){
+        relay_on = false;
+        switchRelay();
+        relay_on = true;
     }
-    delay(1000);
+    float capacityHours = testMode ? 1 : 250;
+    if(totalHours >= capacityHours){
+        shouldBuzz = false;
+    }
 }
 
 void handleFirebaseStream() {
     if (!Firebase.RTDB.readStream(&commandFbdo)) {
-        LOG_ERROR("\nCommand Stream read failed");
-        LOGF("\n🔍 Reason: %s", commandFbdo.errorReason().c_str());
-        delay(500);
-    }
-    if (!Firebase.RTDB.readStream(&idleFlagFbdo)) {
-        LOG_ERROR("\nIdle Flag Stream read failed");
-        LOGF("\n🔍 Reason: %s", idleFlagFbdo.errorReason().c_str());
         delay(500);
     }
 }
 
 void onCommandDataChange(FirebaseStream data) {
-    if (data.dataType() == "string") {
-        String value = data.stringData();
-        if (value == "waiting") {
-            LOG_INFO("⏳ Waiting for new command — nothing to do.");
+    if (data.dataType() != "json") {
+        return;
+    }
+    FirebaseJsonData result;
+    commandData.clear();
+    commandData = data.to<FirebaseJson>();
+    commandData.get(result, "action");
+    String action = result.stringValue;
+    LOG_INFO("📦 Received New Command - Executing...");
+    String commandResult = "Success";
+    if(action == "set_mode"){
+        result.clear();
+        commandData.get(result, "mode");
+        if(mode != result.stringValue){
+            mode = result.stringValue;
+            if(mode == "timer" && !testMode){
+                commandData.get(result, "duration");
+                duration = result.intValue;
+            }
+            if(mode == "motion"){
+                lastMotionMillis = millis();
+           }
         }
-        return;
     }
-    else if (data.dataType() != "json") {
-        LOG_ERROR("❌ Invalid or missing JSON command");
-        return;
+    else if(action == "apply_schedule"){
+        fetchSchedule();
     }
-    FirebaseJson &commandData = data.to<FirebaseJson>();
-    String jsonStr;
-    commandData.toString(jsonStr);
-    JsonDocument command;
-    deserializeJson(command, jsonStr);
-    LOG_INFO("📦 Received JSON Command");
-    PerformAction(command);
+    else if(action == "reset_maintenance"){
+        shouldBuzz = true;
+        totalHours = 0.0;
+    }
+    else if(action == "ignore_motion"){
+        idleFlag = "continue";
+    }
+    else if(action == "switch_lights"){
+        switchLed();
+        lights_on = !lights_on;
+    }
+    else if(action == "switch_relay"){
+        switchRelay();
+        relay_on = !relay_on;
+    }
+    else if(action == "reset_device"){
+        resetDevice();
+    }
+    else{
+        commandResult = execute(action) ? "Success" : "Failed";
+    }
+    resultFbdo.clear();
+    if(Firebase.RTDB.setString(&resultFbdo, deviceMacPath + "/result", commandResult)){
+        LOG_INFO("Command Executed");
+    }
+    else{
+        LOGF("❌ Failed To Send Result: %s", resultFbdo.errorReason().c_str());
+    }
+    commandData.clear();
+    resultFbdo.clear();
     return;
 }
 
-void onIdleFlagChange(FirebaseStream data) {
-    if (data.dataType() != "string") return;
-    String newFlag = data.stringData();
-    if (newFlag == "turn_off" || newFlag == "continue") {
-        LOGF("🔄 idleFlag changed: %s", newFlag.c_str());
-        loadDeviceData();
-        return;
-    }
-    else {
-        return;
-    }
-}
 void onCommandStreamTimeout(bool timeout) {
     static unsigned long lastReconnectAttempt = 0;
     static int retryCount = 0;
@@ -271,80 +269,173 @@ void onCommandStreamTimeout(bool timeout) {
     }
 }
 
-void onIdleStreamTimeout(bool timeout) {
-    static unsigned long lastReconnectAttempt = 0;
-    static int retryCount = 0;
-    const unsigned long RECONNECT_COOLDOWN_MS = 5000;
-    const int MAX_RETRIES = 3;
-    if (!timeout) return;
-    LOG_WARN("⚠️ Stream timed out — attempting to reconnect...");
-    unsigned long now = millis();
-    if (now - lastReconnectAttempt < RECONNECT_COOLDOWN_MS) {
-        LOG_WARN("⏳ Reconnect attempt skipped — waiting for cooldown.");
-        return;
-    }
-    lastReconnectAttempt = now;
-    retryCount++;
-    if (Firebase.RTDB.beginStream(&idleFlagFbdo, idlePath)) {
-        LOG_INFO("🔄 Idle Flag Stream reconnected successfully.");
-        retryCount = 0;  // reset on success
-    } else {
-        LOGF("❌ Idle Flag Stream reconnect failed (Attempt %d): %s", retryCount, idleFlagFbdo.errorReason().c_str());
-        if (retryCount >= MAX_RETRIES) {
-            LOG_ERROR("🚨 Max stream retry attempts reached. Consider resetting the device or switching to AP mode.");
-            delay(100);
-            LOG_INFO("Restarting ESP...");
-            ESP.restart();
-        }
-    }
-}
-
-void resetData() {
-    String path = deviceMacPath;
-
-    if (WiFi.status() != WL_CONNECTED) {
-        LOG_ERROR("❌ Cannot reset: Wi-Fi not connected.");
-        return;
-    }
-
-    const int maxRetries = 3;
-    Firebase.RTDB.endStream(&commandFbdo);
-    Firebase.RTDB.endStream(&idleFlagFbdo);
-    LOG_INFO("ended fbdo stream");
-    delay(100);
-    for (int attempt = 1; attempt <= maxRetries; ++attempt) {
-        LOGF("🔁 Attempt %d to delete RTDB device data: %s", attempt, path.c_str());
-        accessFbdo.clear();
-        if (Firebase.RTDB.deleteNode(&accessFbdo, path)) {
-            LOG_INFO("🗑️ RTDB node deleted successfully.");
-            return;
-        } else {
-            LOGF("⚠️ Delete failed (Attempt %d): %s", attempt, accessFbdo.errorReason().c_str());
-            delay(1000);  // wait before retry
-        }
-    }
-
-    LOG_ERROR("❌ Failed to delete RTDB node after multiple attempts.");
-}
-
 void updateOnlineStatus() {
-    if(millis() - lastHeartbeat > HEARTBEAT_INTERVAL){
-        lastHeartbeat = millis();
-        unsigned long now = millis();
-        unsigned long timestamp = now / 1000; // convert to seconds
-        String path = deviceMacPath + "/status/online";
-        accessFbdo.clear();
-        if (Firebase.RTDB.setInt(&accessFbdo, path, timestamp)) {
-        LOG_INFO("📶 Online heartbeat sent");
+    unsigned long now = millis();
+    static unsigned long lastPush = 0;
+    if (now - lastPush >= HEARTBEAT_INTERVAL) {
+        unsigned long timestamp = time(nullptr);
+        statusFbdo.clear();
+        if (Firebase.RTDB.setInt(&statusFbdo, deviceMacPath + "/status/online", timestamp)) {
+            lastPush = now;
+            LOG_INFO("📶 Online heartbeat sent");
         } else {
-            LOGF("❌ Failed to send heartbeat: %s", accessFbdo.errorReason().c_str());
+            LOGF("❌ Failed to send heartbeat: %s", statusFbdo.errorReason().c_str());
         }
+        statusFbdo.clear();
     }
 }
 
-void updateSensorReadings(){
-    if(readTemperature() || readHumidity() || readMotionSensor()){
-        LOG_INFO("Saving New Sensors Readings");
-        saveDeviceData();
+void updateSensorReadings() {
+    unsigned long now = millis();
+    static unsigned long lastRead = 0;
+    static unsigned long lastPush = 0;
+    static bool motion = false;
+    static float roomTemp = 0.0;
+    static float roomHum = 0.0;
+    static bool currMotion = false;
+    static float currRoomTemp = 0.0;
+    static float currRoomHum = 0.0;
+    static bool shouldUpdate = false;
+    if(now - lastRead > READ_INTERVAL){
+        lastRead = now;
+        currMotion = readMotionSensor();
+        currRoomTemp = readTemperature();
+        currRoomHum = readHumidity();
+        if(currMotion != motion){
+            motion = currMotion;
+            shouldUpdate = true;
+        }
+        if(abs(currRoomTemp - roomTemp) >= TEMP_CHANGE_THRESHOLD){
+            roomTemp = currRoomTemp;
+            shouldUpdate = true;;
+        }
+        if(abs(currRoomHum - roomHum) >= HUM_CHANGE_THRESHOLD){
+            roomHum = currRoomHum;
+            shouldUpdate = true;
+        }
     }
+    if (now - lastPush >= SENSORS_INTERVAL && shouldUpdate) {
+        FirebaseJson json;
+        json.set("roomHumidity", currRoomHum);
+        json.set("roomTemperature", currRoomTemp);
+        json.set("motion", currMotion);
+        sensorFbdo.clear();
+        if (Firebase.RTDB.updateNode(&sensorFbdo, deviceMacPath + "/sensors", &json)) {
+            lastPush = now;
+            shouldUpdate = false;
+            LOG_INFO("📶 Sensor Readings sent");
+        } else {
+            LOGF("❌ Failed to send sensor readings: %s", sensorFbdo.errorReason().c_str());
+        }
+        sensorFbdo.clear();
+    }
+}
+
+void fetchSchedule() {
+  accessFbdo.clear();
+  if (Firebase.RTDB.getJSON(&accessFbdo, deviceMacPath)) {
+    loadScheduleFromJson(accessFbdo.to<FirebaseJson>());
+    LOG_INFO("📥 Schedule fetched");
+  } else {
+    LOGF("❌ Failed to load schedule: %s", accessFbdo.errorReason().c_str());
+  }
+  accessFbdo.clear();
+}
+
+void updateTotalHours(){
+  // Track total working hours
+  static unsigned long acOnStartMillis = 0;
+  float capacityHours = testMode ? 1 : 250;
+  static bool wasACOn = false;
+  if (shouldBuzz && totalHours >= capacityHours) {
+    buzz();
+    shouldBuzz = false;
+    notifyUser("maintenance");
+  }
+  if (acPowered) {
+    if (!wasACOn) { 
+      acOnStartMillis = millis();  // AC just turned on
+    } else {
+      unsigned long elapsed = millis() - acOnStartMillis;
+      int  hoursUpdateInterval = testMode ? 1 : 15;
+      if (elapsed >= hoursUpdateInterval * MINUTES_CONVERT) {
+        acOnStartMillis = millis();  // reset timer
+        totalHours += 0.25;
+        maintenanceFbdo.clear();
+        if (Firebase.RTDB.setFloat(&maintenanceFbdo, deviceMacPath + "/maintenance/totalHours", totalHours)) {
+            LOG_INFO("Total Hours increased in 15 minutes");
+        } else {
+            LOGF("❌ Failed to update maintenance hours: %s", maintenanceFbdo.errorReason().c_str());
+        }
+        maintenanceFbdo.clear();
+      }
+    }
+  } else {
+    acOnStartMillis = millis();  // Reset if turned off
+  }
+  wasACOn = acPowered;
+
+}
+
+void notifyUser(const String& prompt){
+    notifyFbdo.clear();
+    if(prompt == "motion"){
+        if (Firebase.RTDB.setString(&notifyFbdo, deviceMacPath + "/status/idleFlag", idleFlag)) {
+            LOG_INFO("Notified RTDB About Motion");
+        } else {
+            LOGF("❌ Failed to Notify RTDB About Motion: %s", notifyFbdo.errorReason().c_str());
+        }
+    }
+    else if (prompt == "maintenance"){
+        if (Firebase.RTDB.setBool(&notifyFbdo, deviceMacPath + "/status/maintenanceFlag", !shouldBuzz)) {
+            LOG_INFO("Notified RTDB About Maintenance");
+        } else {
+            LOGF("❌ Failed to Notify RTDB About Maintenance: %s", notifyFbdo.errorReason().c_str());
+        }
+
+    }
+    else if (prompt == "system_switch_power"){
+        if (Firebase.RTDB.setBool(&notifyFbdo, deviceMacPath + "/status/powered", acPowered)) {
+            LOG_INFO("Notified RTDB About System Turn Off");
+        } else {
+            LOGF("❌ Failed to Notify RTDB About System Turn Off: %s", notifyFbdo.errorReason().c_str());
+        }
+    }
+    else if (prompt == "reset_mode"){
+        if (Firebase.RTDB.setString(&notifyFbdo, deviceMacPath + "/status/mode", mode)) {
+            LOG_INFO("Notified RTDB About Resetting Mode");
+        } else {
+            LOGF("❌ Failed to Notify RTDB About Resetting Mode: %s", notifyFbdo.errorReason().c_str());
+        }
+    }
+    else if (prompt == "system_switch_power_due_to_motion"){
+        if (Firebase.RTDB.setBool(&notifyFbdo, deviceMacPath + "/status/powered", acPowered)) {
+            LOG_INFO("Notified RTDB About System Turn Off");
+        } else {
+            LOGF("❌ Failed to Notify RTDB About System Turn Off: %s", notifyFbdo.errorReason().c_str());
+        }
+        idleFlag = "active";
+        if (Firebase.RTDB.setString(&notifyFbdo, deviceMacPath + "/status/idleFlag", idleFlag)) {
+            LOG_INFO("Notified RTDB About Motion Auto Off");
+        } else {
+            LOGF("❌ Failed to Notify RTDB About Motion Auto Off: %s", notifyFbdo.errorReason().c_str());
+        }
+    }
+    notifyFbdo.clear();
+    return;
+}
+
+void resetDevice(){
+    Preferences prefs;
+    prefs.begin("setup", false);
+    prefs.clear();
+    prefs.end();
+    prefs.begin("daytrack", false);
+    prefs.clear();
+    prefs.end();
+    prefs.begin("eco", false);
+    prefs.clear();
+    prefs.end();
+    delay(2000);
+    ESP.restart();
 }

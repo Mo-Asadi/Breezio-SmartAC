@@ -12,6 +12,7 @@ extern struct tm timeinfo;
 
 void initTime();
 bool isNewDay(String& currentDayName);
+int dayNameToIndex(const String& dayName);
 int getCurrentHourMinute();
 
 #endif

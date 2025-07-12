@@ -125,27 +125,30 @@ class _WeatherWidgetState extends State<WeatherWidget> {
                   'Current Weather:',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                 ),
-                DropdownButton<String>(
-                  value: _selectedCity,
-                  icon: const Icon(Icons.arrow_downward),
-                  elevation: 16,
-                  style: const TextStyle(color: Colors.indigo, fontSize: 16),
-                  underline: Container(
-                    height: 2,
-                    color: Colors.indigoAccent,
+                Flexible( // 👈 this prevents overflow
+                  child: DropdownButton<String>(
+                    isExpanded: true, // 👈 optional but recommended
+                    value: _selectedCity,
+                    icon: const Icon(Icons.arrow_downward),
+                    elevation: 16,
+                    style: const TextStyle(color: Colors.indigo, fontSize: 16),
+                    underline: Container(
+                      height: 2,
+                      color: Colors.indigoAccent,
+                    ),
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        _selectedCity = newValue!;
+                        _fetchWeatherData();
+                      });
+                    },
+                    items: _cities.map<DropdownMenuItem<String>>((String value) {
+                      return DropdownMenuItem<String>(
+                        value: value,
+                        child: Text(value, overflow: TextOverflow.ellipsis),
+                      );
+                    }).toList(),
                   ),
-                  onChanged: (String? newValue) {
-                    setState(() {
-                      _selectedCity = newValue!;
-                      _fetchWeatherData();
-                    });
-                  },
-                  items: _cities.map<DropdownMenuItem<String>>((String value) {
-                    return DropdownMenuItem<String>(
-                      value: value,
-                      child: Text(value),
-                    );
-                  }).toList(),
                 ),
               ],
             ),

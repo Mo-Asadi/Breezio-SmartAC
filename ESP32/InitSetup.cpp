@@ -4,16 +4,12 @@
 #include <IRutils.h>
 #include <IRrecv.h>
 #include <IRsend.h>
-#include "InitSetup.h"
+#include "initSetup.h"
 #include "log.h"
 #include "secrets.h"
 #include "parameters.h"
-#include "FirestoreServices.h"
-#include "dhtSensor.h"
-#include "buzzer.h"
-#include "pirSensor.h"
-#include "relay.h"
-#include "led.h"
+#include "firestoreServices.h"
+#include "sensors.h"
 
 WebServer server(80);
 IRrecv irrecv(IRREC);
@@ -28,7 +24,7 @@ bool isProvisioned() {
     return debugssid == "" ? ready : true;
 }
 
-void InitIRLearning() {
+void initIRLearning() {
     irrecv.enableIRIn();
     irtest.begin();
     LOG_INFO("📥 IR receiver initialized (learning mode)");
@@ -126,7 +122,7 @@ void registerIRTestHandler() {
 }
 
 void registerIRSetupHandlers() {
-    InitIRLearning();
+    initIRLearning();
     server.on("/irsetup/on", HTTP_GET, []() {
         if (captureAndSaveIR("on"))
             server.send(200, "text/plain", "✅ IR ON code captured");
@@ -157,7 +153,7 @@ void registerIRSetupHandlers() {
 }
 
 void startAPMode() {
-    String apName = "SmartAC-Setup-" + WiFi.macAddress();
+    String apName = "Breezio-" + WiFi.macAddress();
     apName.replace(":", "");
 
     WiFi.softAP(apName.c_str(), "Breezio123");
@@ -182,18 +178,16 @@ void startAPMode() {
 
         // Extract all required fields
         String model = doc["model"] | "";
-        int minTemp = doc["minTemp"] | -1;
-        int maxTemp = doc["maxTemp"] | -1;
+        String name = doc["name"] | "Breezio";
         String ssid = doc["ssid"] | "";
         String password = doc["password"] | "";
-        String adminUID = doc["uid"] | "";
         prefs.begin("setup", true);
         LOGF("📋 Setup request received: model=%s, IR keys: on=%d off=%d up=%d down=%d",model.c_str(), prefs.isKey("on"), prefs.isKey("off"),prefs.isKey("tempUp"), prefs.isKey("tempDown"));
         bool irReady = !(model == "custom" &&
                         (!prefs.isKey("on") || !prefs.isKey("off") || 
                         !prefs.isKey("tempUp") || !prefs.isKey("tempDown")));
         // Check for missing required values
-        if (model == "" || ssid == "" || password == "" || adminUID == "" || minTemp == -1 || maxTemp == -1) {
+        if (model == "" || ssid == "" || password == "") {
             server.send(400, "text/plain", "❌ Missing required fields.");
             return;
         }
@@ -205,13 +199,17 @@ void startAPMode() {
 
         prefs.begin("setup", false);
         prefs.putString("model", model);
+        prefs.putString("name", name);
         prefs.putString("ssid", ssid);
         prefs.putString("pass", password);
-        prefs.putString("uid", adminUID);
-        prefs.putInt("minTemp", minTemp);
-        prefs.putInt("maxTemp", maxTemp);
         prefs.putBool("provisioned", true);
         prefs.end();
+
+        // ✅ Return MAC in the response
+        String mac = WiFi.macAddress();
+        mac.replace(":", "");  // optional, if you want MAC without colons
+        String responseJson = "{\"status\": \"✅ Setup complete.\", \"mac\": \"" + mac + "\"}";
+        server.send(200, "application/json", responseJson);
 
         server.send(200, "text/plain", "✅ Setup complete. Rebooting...");
         delay(1000);
@@ -268,13 +266,8 @@ void connectToWifi(){
     LOG_ERROR("❌ Failed to connect to Wi-Fi after multiple attempts.");
 }
 
-
-void InitSetup(){
-    InitDHT();
-    InitBuzzer();
-    InitPir();
-    InitRelay();
-    InitLed();
+void initSetup(){
+    initSensors();
     if (!isProvisioned()) {
         startAPMode();
         return;
@@ -282,22 +275,7 @@ void InitSetup(){
     connectToWifi();
     return;
 }
+
 void handleWebRequests() {
   server.handleClient();
-}
-
-void checkResetButton(){
-    pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
-    if (digitalRead(RESET_BUTTON_PIN) == LOW) {
-        LOG_WARN("🔁 Reset button pressed — clearing config and database...");
-        resetData();
-        prefs.begin("setup", false);
-        prefs.clear();
-        prefs.end();
-        prefs.begin("daytrack", false);
-        prefs.clear();
-        prefs.end();
-        delay(2000);
-        ESP.restart();
-    }
 }

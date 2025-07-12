@@ -4,9 +4,8 @@
 #include <Arduino.h> 
 #include <Preferences.h>
 
-void InitSetup(); 
+void initSetup(); 
 bool isProvisioned();
 void handleWebRequests();
-void checkResetButton();
 
 #endif

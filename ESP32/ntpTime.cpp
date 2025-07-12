@@ -25,6 +25,17 @@ void initTime() {
   LOG_ERROR("❌ Failed to obtain time");
 }
 
+int dayNameToIndex(const String& dayName) {
+  if (dayName == "Sunday") return 0;
+  if (dayName == "Monday") return 1;
+  if (dayName == "Tuesday") return 2;
+  if (dayName == "Wednesday") return 3;
+  if (dayName == "Thursday") return 4;
+  if (dayName == "Friday") return 5;
+  if (dayName == "Saturday") return 6;
+  return -1; // error fallback
+}
+
 bool isNewDay(String& currentDayName) {
   static int lastDay = -1;
   static bool firstRun = true;

@@ -5,6 +5,6 @@
 #include <ArduinoJson.h>
 
 void initIR();
-void PerformAction(JsonDocument& command);
+bool execute(const String& action);
 
 #endif

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:breezio/screens/signup_screen.dart';
-import 'package:breezio/widgets/nav_bar.dart';
+import 'package:breezio/screens/authentication&onboarding/signup_screen.dart';
+import 'package:breezio/widgets/navigation/home_screen_nav.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -28,7 +28,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const NavBar()),
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
       );
     } on FirebaseAuthException catch (e) {
       String message = "Login failed";
