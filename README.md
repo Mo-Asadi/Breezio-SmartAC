@@ -1,4 +1,4 @@
-# Smart AC Project
+# Breezio - Smart AC Project
 
 Welcome to the **Smart AC Project**, a comprehensive smart air conditioning control system built with an ESP32 microcontroller and a Flutter-based mobile application. The project enables remote AC control through Firebase, IR signals, sensors, schedules, and more.
 
@@ -7,24 +7,51 @@ Welcome to the **Smart AC Project**, a comprehensive smart air conditioning cont
 ## 📁 Repository Structure
 ```
 ├── ESP32/                  # ESP32 firmware for device-side control
-├      ├── ESP32.ino
-├      ├── FirestoreServices.*
-├      ├── IRCommand.*
-├      ├── InitSetup.*
-├      ├── buzzer.*
-├      ├── dhtSensor.*
-├      ├── led.*
-├      ├── modeHandler.*
-├      ├── ntpTime.*
-├      ├── pirSensor.*
-├      ├── relay.*
-├      ├── secrets.*
-├      ├── parameters.h
-├      └── log.h
-├── Breezio-Flutter App/   # Flutter mobile app for controlling and configuring the AC  
+│   ├── ESP32.ino
+│   ├── firestoreServices.*
+│   ├── command.*
+│   ├── initSetup.*
+│   ├── sensors.*
+│   ├── modeHandler.*
+│   ├── ntpTime.*
+│   ├── secrets.*
+│   ├── parameters.h
+│   └── log.h
+├── Breezio-Flutter App/   # Flutter mobile app for controlling and configuring the AC
+│   ├── android/ ...
+│   ├── functions/ ...
+│   ├── lib/
+│   │    ├── providers/
+│   │    │      ├── ac_maintenance_provider.dart
+│   │    │      ├── ac_status_provider.dart
+│   │    │      ├── command_provider.dart
+│   │    │      └── sensor_data_provider.dart
+│   │    ├── screens/
+│   │    │      ├── authentication&onboarding/
+│   │    │      │          ├── ac_setup_screen.dart
+│   │    │      │          ├── login_screen.dart
+│   │    │      │          ├── signup_screen.dart
+│   │    │      │          └── splash_screen.dart
+│   │    │      └──  homescreen/
+│   │    │                 ├── dashboard_screen.dart
+│   │    │                 ├── maintenance_screen.dart
+│   │    │                 └── remote_controller_screen.dart
+│   │    ├── widgets/
+│   │    │      ├── navigation/
+│   │    │      │       └── home_screen_nav.dart
+│   │    │      ├── sensors/
+│   │    │      │       ├── air_quality_card.dart
+│   │    │      │       └── dht11_sensor_card.dart
+│   │    │      ├── advice_widget.dart
+│   │    │      ├── barcode_scanner_screen.dart
+│   │    │      └── weather_widget.dart
+│   │    └── main.dart
+│   ├── test/ ...
+│   ├── pubspec.yaml
+│   :
+│   └──README.md 
 ├── README.md              # Project documentation
 └── LICENSE                # Project License
-
 ```
 
 ---
@@ -37,58 +64,65 @@ Welcome to the **Smart AC Project**, a comprehensive smart air conditioning cont
   - Manual IR mode for any other brand (user-provided IR codes)
 - **Realtime Commands via Firebase**:
   - Listens to `/devices/{deviceMac}/command`
-  - Reports status to `/devices/{deviceMac}/result`
+  - Reports result to `/devices/{deviceMac}/result`
 - **Modes & Scheduling**:
   - Regular, eco, motion-based, and timer modes
-  - Per-user weekly schedule with start/end times
+  - Per-user weekly schedule with start/end times (stored as integers, e.g. 1537)
 - **User Management**:
-  - Admin can add other users and manage privileges
+  - Admin can add/remove users and assign roles
 - **Hardware Integrations**:
   - PIR motion sensor for occupancy detection
-  - NeoPixel LED for status and mood lighting
-  - Relay to control external devices (e.g., scent diffuser)
-  - Buzzer for audio notifications
+  - NeoPixel LED for theme lighting
+  - Relay control for devices like scent diffusers
   - DHT11 sensor for temperature/humidity
+  - Passive buzzer for alerts
 - **Favorites Feature**:
-  - Save and instantly apply personalized settings
+  - Save and instantly apply preferred settings (mode, temp, relay, lights)
 - **Online Status & Time Sync**:
-  - Heartbeat system to indicate device availability
-  - NTP synchronization for daily schedule execution
+  - Heartbeat system updates last seen timestamp
+  - NTP sync for accurate daily scheduling
+- **Memory Optimization**:
+  - No large JSONs; saves only necessary data to prevent stack overflow
 
 ---
 
 ### 📱 Flutter App (`Breezio-Flutter App/`)
+- **Modern Flutter Architecture**:
+  - Fully refactored to use Provider pattern
+  - State managers: `ACStatusProvider`, `CommandProvider`, `ACMaintenanceProvider`, `SensorDataProvider`
 - **Onboarding & Setup**:
-  - Device discovery
-  - Wi-Fi credentials input
-  - IR signal learning (manual mode)
+  - IR learning for custom ACs
+  - Wi-Fi config via ESP32 AP-mode
 - **Authentication**:
-  - Email/password login system
-  - Role-based access control (admin/user)
-- **Control Interface**:
-  - Power toggle, temperature up/down
-  - Mode switch (eco, motion, etc.)
-  - Relay and LED toggles
-  - Apply and saved favorite settings
+  - Firebase email/password login
+  - Role-based access (admin/user)
+- **Device Control**:
+  - Power, temperature, mode, LED, scent relay
+  - Real-time status updates and feedback
 - **User-Specific Scheduling**:
-  - Day-based time intervals for automatic AC control
-- **Live Feedback**:
-  - Shows current temperature
-  - Displays last known command and result
+  - Configure per-day start/end times
+  - Apply individual schedules to device
+- **Maintenance & Alerts**:
+  - Displays total vs capacity hours
+  - Local notifications for:
+    - Idleness (no motion)
+    - Maintenance required
+- **Favorites Support**:
+  - Apply saved preferences in a single tap
 
 ---
 
 ## 🔧 Hardware Requirements
 
 - ESP32-microcontroller
-- IR LED and Receiver
+- IR LED + Receiver
 - PIR motion sensor
 - Relay module
-- NeoPixel RGB LED strip
-- DHT11 temperature & humidity sensor
+- NeoPixel RGB LED
+- DHT11 temp/humidity sensor
 - Passive buzzer
-- Tactile button
-- Power supply (USB or 5V regulator)
+- Push button
+- 5V power supply
 
 ---
 
@@ -97,23 +131,24 @@ Welcome to the **Smart AC Project**, a comprehensive smart air conditioning cont
 ### ESP32 Firmware
 
 1. **🧰 Arduino Dependencies**:
-    Make sure to install the following libraries in the Arduino IDE:
+    Install the following libraries in Arduino IDE:
+
     | Library Name | Author | Version |
     |--------------|--------|---------|
     | [Adafruit NeoPixel](https://github.com/adafruit/Adafruit_NeoPixel) | Adafruit | 1.15.1 |
     | [Adafruit Unified Sensor](https://github.com/adafruit/Adafruit_Sensor) | Adafruit | 1.1.15 |
     | [ArduinoJson](https://arduinojson.org/) | Benoît Blanchon | 7.4.2 |
     | [DHT sensor library](https://github.com/adafruit/DHT-sensor-library) | Adafruit | 1.4.6 |
-    | [Firebase Arduino Client](https://github.com/mobizt/Firebase-ESP-Client) | Mobizt | 4.4.17 |
+    | [Firebase ESP Client](https://github.com/mobizt/Firebase-ESP-Client) | Mobizt | 4.4.17 |
     | [IRremoteESP8266](https://github.com/crankyoldgit/IRremoteESP8266) | David Conran et al. | 2.8.6 |
 
+2. **Setup `secrets.cpp`** (not in repo):
 
-2. **Setup `secrets.cpp`** (not included in repo):
-   ```cpp
+    ```cpp
     const char* debugssid = "YourSSID";
     const char* debugpass = "YourPassword";
     const String ApiKey = "YourFirebaseAPIKey";
     const String DbUrl = "https://your-project.firebaseio.com/";
     const String AuthEmail = "your@firebase.user";
     const String AuthPass = "YourFirebasePassword";
-
+    ```
